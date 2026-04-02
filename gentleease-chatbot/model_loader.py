@@ -30,9 +30,26 @@ class ModelWrapper:
                 pad_token_id=self.tokenizer.eos_token_id,
             )
 
+        try:
+            from guardrails import apply_elder_care_guardrails, get_special_response
+        except ImportError:
+            def apply_elder_care_guardrails(r): return r
+            def get_special_response(t): return None
+
+        special = get_special_response(text)
+        if special:
+            return apply_elder_care_guardrails(special)
+
         # Decode only the newly generated tokens (skip the prompt)
         generated_ids = outputs[0][inputs.shape[-1]:]
         reply = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+        
+        # Stop hallucinating extra dialogue lines
+        for stop_word in ["\nUser:", "User:", "\nAssistant:", "Assistant:"]:
+            if stop_word in reply:
+                reply = reply.split(stop_word)[0].strip()
+
+        reply = apply_elder_care_guardrails(reply)
         return reply or "I'm here to help! Could you tell me more?"
 
 
