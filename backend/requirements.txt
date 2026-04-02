@@ -5,3 +5,5 @@ transformers>=4.40.0
 torch>=2.0.0
 pyttsx3>=2.90
 SpeechRecognition>=3.10.0
+pydub>=0.25.1
+python-multipart>=0.0.6

@@ -4,11 +4,11 @@ Run with:  uvicorn api:app --reload --port 8000
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from typing import List
-import sys, os
+import sys, os, tempfile
 
 # ── Import our own files ───────────────────────────────────────────────────────
 from database import init_db, get_connection
@@ -308,3 +308,82 @@ def text_to_speech(msg: ChatMessage):
     if not ok:
         raise HTTPException(status_code=503, detail="Voice module not available.")
     return {"status": "spoken ✅"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SPEECH-TO-TEXT  (/transcribe)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Accept an audio file upload and return the transcribed text.
+    Uses Google's free Speech Recognition API.
+    """
+    import speech_recognition as sr
+
+    print(f"🎤 Received file: {file.filename}, content_type: {file.content_type}")
+
+    # Save uploaded file to a temp location
+    suffix = os.path.splitext(file.filename or ".wav")[1] or ".wav"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    wav_path = None
+    try:
+        content = await file.read()
+        print(f"🎤 File size: {len(content)} bytes")
+        
+        if len(content) < 1000:
+            return {"text": "", "error": "Recording too short. Please hold the mic button longer and speak clearly."}
+        
+        tmp.write(content)
+        tmp.close()
+
+        audio_path = tmp.name
+
+        # Always try to convert with pydub first (handles any format → WAV)
+        wav_path = audio_path
+        try:
+            from pydub import AudioSegment
+
+            print(f"🎤 Attempting audio conversion from {suffix}...")
+            audio_seg = AudioSegment.from_file(audio_path)
+            wav_path = audio_path + ".converted.wav"
+            audio_seg.export(wav_path, format="wav")
+            print(f"🎤 Converted to WAV: {wav_path}")
+        except ImportError:
+            print("⚠️ pydub not installed — trying raw file")
+            wav_path = audio_path
+        except Exception as conv_err:
+            print(f"⚠️ Audio conversion error: {conv_err}, trying raw file")
+            wav_path = audio_path
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+
+        print("🎤 Sending to Google Speech Recognition...")
+        text = recognizer.recognize_google(audio_data)
+        print(f"🎤 Transcription result: {text}")
+        return {"text": text}
+
+    except sr.UnknownValueError:
+        print("🎤 Could not understand audio")
+        return {"text": "", "error": "Could not understand the audio. Please try again."}
+    except sr.RequestError as e:
+        print(f"🎤 Speech service error: {e}")
+        raise HTTPException(status_code=503, detail=f"Speech recognition service error: {e}")
+    except Exception as e:
+        print(f"🎤 Transcription failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+    finally:
+        # Cleanup temp files
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        if wav_path and wav_path != tmp.name:
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
+
