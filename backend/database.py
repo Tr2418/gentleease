@@ -14,6 +14,14 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
 
+    # Table for generic app settings
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+
     # Table for medications
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS meds (

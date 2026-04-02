@@ -42,6 +42,10 @@ class ChatResponse(BaseModel):
 
 # ── SOS ───────────────────────────────────────────────────────────────────────
 
+class SOSContact(BaseModel):
+    """Payload to save an emergency contact."""
+    number: str
+
 class SOSAlert(BaseModel):
     """Payload when SOS button is tapped."""
     user_name: Optional[str] = "User"

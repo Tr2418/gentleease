@@ -16,7 +16,7 @@ from models import (
     Med, MedCreate,
     Record, RecordCreate,
     ChatMessage, ChatResponse,
-    SOSAlert,
+    SOSAlert, SOSContact,
 )
 
 # ── Optional chatbot integration (lazy-loaded) ───────────────────────────────
@@ -247,6 +247,30 @@ def get_chat_history(limit: int = 20):
 # SOS  (/sos)
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.get("/sos/contact")
+def get_sos_contact():
+    """Get the saved emergency contact number."""
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'sos_contact'").fetchone()
+    except Exception:
+        # Table might not exist entirely cleanly if hot reloaded
+        row = None
+    conn.close()
+    return {"number": row["value"] if row else ""}
+
+@app.post("/sos/contact")
+def set_sos_contact(contact: SOSContact):
+    """Save the emergency contact number."""
+    conn = get_connection()
+    conn.execute(
+        "REPLACE INTO settings (key, value) VALUES ('sos_contact', ?)", 
+        (contact.number.strip(),)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "saved", "number": contact.number.strip()}
+
 @app.post("/sos")
 def trigger_sos(alert: SOSAlert):
     """
@@ -267,11 +291,7 @@ def trigger_sos(alert: SOSAlert):
     conn.commit()
     conn.close()
 
-    if TTS_AVAILABLE:
-        try:
-            speak(message)
-        except Exception as e:
-            print(f"SOS TTS error: {e}")
+    try_speak(message)
 
     print(f"\n{'='*50}\n{message}\n{'='*50}\n")
     return {"status": "SOS sent", "message": message}
